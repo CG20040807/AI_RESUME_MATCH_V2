@@ -1,6 +1,4 @@
-from core.analyzer import analyze
-from core.scorer import extract_score
-from core.ranker import rank_candidates
-from core.summarizer import summarize
+# AI Resume Analyzer - Core Module
+# 直接导入子模块，不在包级别执行复杂操作
 
-__all__ = ["analyze", "extract_score", "rank_candidates", "summarize"]
+__version__ = "2.0"

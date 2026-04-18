@@ -1,0 +1,5 @@
+DASHSCOPE_API_KEY=sk-a48bc0257a6d44b3b926548d09d38ce4
+DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+QWEN_MODEL=qwen-plus
+
+DEEPSEEK_API_KEY=sk-fac559f26bed4130bf03529c36dfaf31

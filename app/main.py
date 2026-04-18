@@ -6,7 +6,9 @@ import json
 from pathlib import Path
 from datetime import datetime
 
-# 项目根目录：main.py 在 app/ 里，所以根目录是 parents[1]
+# ── 路径修复（必须最先，且只保留这一份）──
+# 当前文件位于 /app/main.py
+# 所以项目根目录是 parents[1]
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
@@ -16,13 +18,14 @@ load_dotenv(ROOT_DIR / ".env")
 
 import streamlit as st
 
-# 必须是第一个 st 命令
+# ── 页面配置（必须是第一个 st 命令）──
 st.set_page_config(
     page_title="AI 智能简历评估系统",
     page_icon="🧠",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
 # ── 项目模块 ──
 from core.analyzer import analyze
 from core.scorer import extract_score
@@ -124,23 +127,26 @@ st.markdown("""
 #  辅助函数
 # ══════════════════════════════════════════════════════
 def score_hex(s):
-    if s >= 80: return "#16a34a"
-    if s >= 65: return "#2563eb"
-    if s >= 50: return "#d97706"
+    if s >= 80:
+        return "#16a34a"
+    if s >= 65:
+        return "#2563eb"
+    if s >= 50:
+        return "#d97706"
     return "#dc2626"
 
 def rec_badge_html(rec):
-    M = {
-        "强烈推荐": ("b-green",  "⭐ 强烈推荐"),
-        "推荐":    ("b-blue",   "✅ 推荐"),
-        "观察":    ("b-yellow", "👀 观察"),
-        "不推荐":  ("b-red",    "❌ 不推荐"),
+    m = {
+        "强烈推荐": ("b-green", "⭐ 强烈推荐"),
+        "推荐": ("b-blue", "✅ 推荐"),
+        "观察": ("b-yellow", "👀 观察"),
+        "不推荐": ("b-red", "❌ 不推荐"),
     }
-    cls, label = M.get(rec, ("b-gray", "— " + rec))
+    cls, label = m.get(rec, ("b-gray", "— " + str(rec)))
     return '<span class="badge ' + cls + '">' + label + '</span>'
 
 def score_bar_html(label, val, max_val=100):
-    pct   = min(100, max(0, int(val / max_val * 100)))
+    pct = min(100, max(0, int(val / max_val * 100)))
     color = score_hex(val)
     return (
         '<div class="sbar-wrap">'
@@ -152,7 +158,7 @@ def score_bar_html(label, val, max_val=100):
 
 def extract_sub_scores(text):
     keys = ["技能匹配", "经验匹配", "教育背景", "综合潜力", "表达沟通"]
-    out  = {}
+    out = {}
     for k in keys:
         m = re.search(k + r"[:：]\s*(\d+)", text)
         out[k] = int(m.group(1)) if m else None
@@ -166,15 +172,16 @@ def log_cls(log_line):
 #  Session State
 # ══════════════════════════════════════════════════════
 DEFAULTS = {
-    "results":         [],
-    "summary":         "",
-    "word_bytes":      None,
+    "results": [],
+    "summary": "",
+    "word_bytes": None,
     "job_title_cache": "",
-    "jd_cache":        "",
-    "criteria_cache":  "",
-    "logs":            [],
-    "expanded_all":    False,
+    "jd_cache": "",
+    "criteria_cache": "",
+    "logs": [],
+    "expanded_all": False,
 }
+
 for _k, _v in DEFAULTS.items():
     if _k not in st.session_state:
         st.session_state[_k] = _v
@@ -188,22 +195,21 @@ with st.sidebar:
     st.markdown("---")
 
     st.markdown("### ⚙️ 筛选与排序")
-    score_threshold = st.slider("最低分数门槛", 0, 100, 0, 5,
-                                help="低于此分候选人标红显示")
+    score_threshold = st.slider("最低分数门槛", 0, 100, 0, 5, help="低于此分候选人标红显示")
     all_recs = ["强烈推荐", "推荐", "观察", "不推荐", "未提取", "无法评估"]
     rec_filter = st.multiselect("推荐等级筛选", all_recs, default=all_recs)
-    sort_by = st.radio("排序方式",
-        ["综合评分（高→低）", "综合评分（低→高）", "文件名"], index=0)
+    sort_by = st.radio("排序方式", ["综合评分（高→低）", "综合评分（低→高）", "文件名"], index=0)
 
     st.markdown("---")
     st.markdown("### 📊 当前数据")
 
     if st.session_state.results:
-        _r    = st.session_state.results
-        _n    = len(_r)
-        _avg  = sum(x["score"] for x in _r) / _n
+        _r = st.session_state.results
+        _n = len(_r)
+        _avg = sum(x["score"] for x in _r) / _n if _n else 0
         _pass = sum(1 for x in _r if x["score"] >= score_threshold)
-        _rec  = sum(1 for x in _r if x.get("recommendation") in ("强烈推荐","推荐"))
+        _rec = sum(1 for x in _r if x.get("recommendation") in ("强烈推荐", "推荐"))
+
         st.markdown(
             '<div style="color:#94a3b8;font-size:0.82rem;line-height:2.4">'
             '👥 候选人：<b style="color:white">' + str(_n) + '</b><br>'
@@ -215,14 +221,13 @@ with st.sidebar:
         )
         st.markdown("")
         if st.button("🗑️ 清空所有结果", use_container_width=True):
-            st.session_state.results    = []
-            st.session_state.summary    = ""
+            st.session_state.results = []
+            st.session_state.summary = ""
             st.session_state.word_bytes = None
-            st.session_state.logs       = []
+            st.session_state.logs = []
             st.rerun()
     else:
-        st.markdown('<div style="color:#64748b;font-size:0.82rem">暂无结果</div>',
-                    unsafe_allow_html=True)
+        st.markdown('<div style="color:#64748b;font-size:0.82rem">暂无结果</div>', unsafe_allow_html=True)
 
     st.markdown("---")
     st.markdown("### ❓ 使用说明")
@@ -300,8 +305,8 @@ with col_r:
         )
         st.markdown(
             '<div style="background:#eff6ff;border-radius:10px;padding:12px 16px;margin-top:8px">'
-            '<div style="color:#1d4ed8;font-weight:600;margin-bottom:6px">📂 已上传 ' +
-            str(len(uploaded_files)) + ' 份简历</div>' +
+            '<div style="color:#1d4ed8;font-weight:600;margin-bottom:6px">📂 已上传 '
+            + str(len(uploaded_files)) + ' 份简历</div>' +
             file_list_html + '</div>',
             unsafe_allow_html=True
         )
@@ -319,15 +324,19 @@ st.markdown('</div>', unsafe_allow_html=True)
 
 # ── 按钮行 ──
 b1, b2, b3, b4 = st.columns([2, 1, 1, 1])
-with b1: start_btn   = st.button("🚀 开始分析",  use_container_width=True, type="primary")
-with b2: clear_btn   = st.button("🔄 清空输入",  use_container_width=True)
-with b3: demo_btn    = st.button("💡 填入示例",  use_container_width=True)
-with b4: help_btn    = st.button("📖 使用说明",  use_container_width=True)
+with b1:
+    start_btn = st.button("🚀 开始分析", use_container_width=True, type="primary")
+with b2:
+    clear_btn = st.button("🔄 清空输入", use_container_width=True)
+with b3:
+    demo_btn = st.button("💡 填入示例", use_container_width=True)
+with b4:
+    help_btn = st.button("📖 使用说明", use_container_width=True)
 
 if clear_btn:
     st.session_state.job_title_cache = ""
-    st.session_state.jd_cache        = ""
-    st.session_state.criteria_cache  = ""
+    st.session_state.jd_cache = ""
+    st.session_state.criteria_cache = ""
     st.rerun()
 
 if demo_btn:
@@ -364,10 +373,15 @@ if help_btn:
 # ══════════════════════════════════════════════════════
 if start_btn:
     errors = []
-    if not job_title.strip(): errors.append("请填写岗位名称")
-    if not jd.strip():        errors.append("请填写岗位JD")
-    if not criteria.strip():  errors.append("请填写评估标准")
-    if not uploaded_files:    errors.append("请上传至少一份简历")
+    if not job_title.strip():
+        errors.append("请填写岗位名称")
+    if not jd.strip():
+        errors.append("请填写岗位JD")
+    if not criteria.strip():
+        errors.append("请填写评估标准")
+    if not uploaded_files:
+        errors.append("请上传至少一份简历")
+
     if errors:
         for e in errors:
             st.error("⚠️ " + e)
@@ -375,40 +389,40 @@ if start_btn:
 
     # 缓存输入
     st.session_state.job_title_cache = job_title
-    st.session_state.jd_cache        = jd
-    st.session_state.criteria_cache  = criteria
+    st.session_state.jd_cache = jd
+    st.session_state.criteria_cache = criteria
 
     full_criteria = criteria
     if extra_notes.strip():
         full_criteria = criteria + "\n\n补充要求：" + extra_notes.strip()
 
     results = []
-    total   = len(uploaded_files)
-    logs    = []
+    total = len(uploaded_files)
+    logs = []
 
     st.markdown("---")
     st.markdown("### ⏳ 分析进行中...")
-    prog_bar   = st.progress(0)
-    status_ph  = st.empty()
-    log_ph     = st.empty()
+    prog_bar = st.progress(0)
+    status_ph = st.empty()
+    log_ph = st.empty()
 
     for i, file in enumerate(uploaded_files):
         name = file.name.replace(".docx", "")
         status_ph.markdown(
-            '<div class="sitem srun">🔄 <b>正在分析（' +
-            str(i+1) + '/' + str(total) + '）：' + name + '</b></div>',
+            '<div class="sitem srun">🔄 <b>正在分析（'
+            + str(i + 1) + '/' + str(total) + '）：' + name + '</b></div>',
             unsafe_allow_html=True
         )
 
         raw = parse_docx(file)
 
-        if not raw or raw.startswith("【"):
+        if not raw or str(raw).startswith("【"):
             entry = {
-                "name":           name,
-                "analysis":       "⚠️ 简历解析失败：" + str(raw),
-                "score":          0,
+                "name": name,
+                "analysis": "⚠️ 简历解析失败：" + str(raw),
+                "score": 0,
                 "recommendation": "无法评估",
-                "sub_scores":     {}
+                "sub_scores": {}
             }
             logs.append("❌ " + name + " — 解析失败")
         else:
@@ -419,17 +433,17 @@ if start_btn:
                 analysis = "AI分析异常：" + str(exc)
 
             score = extract_score(analysis)
-            rec   = "未提取"
+            rec = "未提取"
             m = re.search(r"推荐建议[:：]\s*(强烈推荐|推荐|观察|不推荐)", analysis)
             if m:
                 rec = m.group(1).strip()
 
             entry = {
-                "name":           name,
-                "analysis":       analysis,
-                "score":          score,
+                "name": name,
+                "analysis": analysis,
+                "score": score,
                 "recommendation": rec,
-                "sub_scores":     extract_sub_scores(analysis)
+                "sub_scores": extract_sub_scores(analysis)
             }
             logs.append("✅ " + name + " — " + str(score) + "分 · " + rec)
 
@@ -459,10 +473,10 @@ if start_btn:
     except Exception:
         word_bytes = None
 
-    st.session_state.results    = ranked
-    st.session_state.summary    = summary
+    st.session_state.results = ranked
+    st.session_state.summary = summary
     st.session_state.word_bytes = word_bytes
-    st.session_state.logs       = logs
+    st.session_state.logs = logs
 
     prog_bar.empty()
     status_ph.empty()
@@ -476,8 +490,8 @@ if start_btn:
 # ══════════════════════════════════════════════════════
 if st.session_state.results:
     raw_ranked = st.session_state.results
-    summary    = st.session_state.summary
-    job_cache  = st.session_state.job_title_cache
+    summary = st.session_state.summary
+    job_cache = st.session_state.job_title_cache
 
     # ── 排序 ──
     if sort_by == "综合评分（高→低）":
@@ -494,24 +508,24 @@ if st.session_state.results:
     st.markdown("---")
     st.markdown("## 📊 评估结果  ·  " + job_cache)
 
-    _n    = len(raw_ranked)
-    _avg  = sum(r["score"] for r in raw_ranked) / _n if _n else 0
+    _n = len(raw_ranked)
+    _avg = sum(r["score"] for r in raw_ranked) / _n if _n else 0
     _pass = sum(1 for r in raw_ranked if r["score"] >= score_threshold)
-    _rec  = sum(1 for r in raw_ranked if r.get("recommendation") in ("强烈推荐","推荐"))
-    top1  = raw_ranked[0] if raw_ranked else {}
+    _rec = sum(1 for r in raw_ranked if r.get("recommendation") in ("强烈推荐", "推荐"))
+    top1 = raw_ranked[0] if raw_ranked else {}
 
     mc = st.columns(5)
     for col, icon, val, label in [
-        (mc[0], "🥇", top1.get("name", "—"),       "最佳候选人"),
+        (mc[0], "🥇", top1.get("name", "—"), "最佳候选人"),
         (mc[1], "🎯", str(top1.get("score", 0)) + " 分", "最高分"),
-        (mc[2], "📈", f"{_avg:.1f} 分",             "平均分"),
-        (mc[3], "👥", str(_pass) + "/" + str(_n),   "达标（≥" + str(score_threshold) + "分）"),
-        (mc[4], "⭐", str(_rec) + " 人",            "推荐人数"),
+        (mc[2], "📈", f"{_avg:.1f} 分", "平均分"),
+        (mc[3], "👥", str(_pass) + "/" + str(_n), "达标（≥" + str(score_threshold) + "分）"),
+        (mc[4], "⭐", str(_rec) + " 人", "推荐人数"),
     ]:
         col.markdown(
             '<div class="metric-card">'
             '<div class="metric-icon">' + icon + '</div>'
-            '<div class="metric-val">'  + str(val)   + '</div>'
+            '<div class="metric-val">' + str(val) + '</div>'
             '<div class="metric-label">' + label + '</div>'
             '</div>',
             unsafe_allow_html=True
@@ -521,24 +535,23 @@ if st.session_state.results:
     st.markdown("")
     with st.expander("📊 分数分布图", expanded=True):
         chart_data = {r["name"][:12]: r["score"] for r in raw_ranked}
-        st.bar_chart(chart_data, height=220, color="#2563eb")
+        st.bar_chart(chart_data, height=220)
 
     # ── 工具栏 ──
     st.markdown("")
     tb = st.columns([2, 1, 1, 1, 1])
     with tb[0]:
-        kw = st.text_input("🔍 搜索候选人", placeholder="输入姓名筛选...",
-                           label_visibility="collapsed")
+        kw = st.text_input("🔍 搜索候选人", placeholder="输入姓名筛选...", label_visibility="collapsed")
         if kw:
             disp = [r for r in disp if kw.lower() in r["name"].lower()]
     with tb[1]:
-        if st.button("📂 全部展开",  use_container_width=True):
+        if st.button("📂 全部展开", use_container_width=True):
             st.session_state.expanded_all = True
     with tb[2]:
         if st.button("📁 全部收起", use_container_width=True):
             st.session_state.expanded_all = False
     with tb[3]:
-        if st.button("🔄 刷新",     use_container_width=True):
+        if st.button("🔄 刷新", use_container_width=True):
             st.rerun()
     with tb[4]:
         st.markdown(
@@ -550,19 +563,17 @@ if st.session_state.results:
     st.markdown("---")
 
     # ══════ 四个 Tab ══════
-    tab1, tab2, tab3, tab4 = st.tabs(
-        ["🏅 排名总览", "🔍 逐人详情", "📊 候选人对比", "📋 综合总结"]
-    )
+    tab1, tab2, tab3, tab4 = st.tabs(["🏅 排名总览", "🔍 逐人详情", "📊 候选人对比", "📋 综合总结"])
 
     # ── Tab1：排名总览 ──
     with tab1:
         if not disp:
             st.info("暂无符合筛选条件的候选人")
         for i, r in enumerate(disp):
-            sc    = r["score"]
+            sc = r["score"]
             color = score_hex(sc)
-            medal = ["🥇","🥈","🥉"][i] if i < 3 else "#" + str(i+1)
-            badge = rec_badge_html(r.get("recommendation","未提取"))
+            medal = ["🥇", "🥈", "🥉"][i] if i < 3 else "#" + str(i + 1)
+            badge = rec_badge_html(r.get("recommendation", "未提取"))
             below = sc < score_threshold
             extra_cls = " rank-below" if below else ""
             warn_html = (
@@ -587,19 +598,15 @@ if st.session_state.results:
         if not disp:
             st.info("暂无符合筛选条件的候选人")
         for i, r in enumerate(disp):
-            sc    = r["score"]
-            medal = ["🥇","🥈","🥉"][i] if i < 3 else "#" + str(i+1)
-            rec   = r.get("recommendation","未提取")
-            exp   = st.session_state.expanded_all or (i == 0)
+            sc = r["score"]
+            medal = ["🥇", "🥈", "🥉"][i] if i < 3 else "#" + str(i + 1)
+            rec = r.get("recommendation", "未提取")
+            exp = st.session_state.expanded_all or (i == 0)
 
-            with st.expander(
-                medal + "  " + r["name"] + "  ·  " + str(sc) + "分  ·  " + rec,
-                expanded=exp
-            ):
+            with st.expander(medal + "  " + r["name"] + "  ·  " + str(sc) + "分  ·  " + rec, expanded=exp):
                 left, right = st.columns([1, 1.6])
 
                 with left:
-                    # 分数条
                     bars_html = score_bar_html("综合总分", sc)
                     sub = r.get("sub_scores", {})
                     for sk, sv in sub.items():
@@ -617,7 +624,6 @@ if st.session_state.results:
                         unsafe_allow_html=True
                     )
 
-                    # 单人导出
                     try:
                         sb = export_single_to_docx(
                             job_cache,
@@ -655,7 +661,6 @@ if st.session_state.results:
             clist = [r for r in disp if r["name"] in sel_names][:5]
 
             if len(clist) >= 2:
-                # 表头
                 hdr = "<tr><th>维度</th>" + "".join(
                     "<th>" + r["name"] + "</th>" for r in clist
                 ) + "</tr>"
@@ -668,18 +673,17 @@ if st.session_state.results:
                     return '<span style="font-weight:700;color:' + c + '">' + str(v) + '</span>'
 
                 dim_rows = ""
-                # 推荐意见行
                 dim_rows += "<tr><td><b>推荐意见</b></td>"
                 for r in clist:
-                    dim_rows += "<td>" + r.get("recommendation","—") + "</td>"
+                    dim_rows += "<td>" + r.get("recommendation", "—") + "</td>"
                 dim_rows += "</tr>"
-                # 综合总分
+
                 dim_rows += "<tr><td><b>综合总分</b></td>"
                 for r in clist:
                     dim_rows += "<td>" + sc_cell(r) + "</td>"
                 dim_rows += "</tr>"
-                # 各维度
-                for dim in ["技能匹配","经验匹配","教育背景","综合潜力","表达沟通"]:
+
+                for dim in ["技能匹配", "经验匹配", "教育背景", "综合潜力", "表达沟通"]:
                     dim_rows += "<tr><td><b>" + dim + "</b></td>"
                     for r in clist:
                         dim_rows += "<td>" + sc_cell(r, dim) + "</td>"
@@ -693,7 +697,7 @@ if st.session_state.results:
                 st.markdown("")
                 st.markdown("**📊 分数对比图**")
                 chart_cmp = {r["name"][:12]: r["score"] for r in clist}
-                st.bar_chart(chart_cmp, height=200, color="#7c3aed")
+                st.bar_chart(chart_cmp, height=200)
 
     # ── Tab4：综合总结 ──
     with tab4:
@@ -721,6 +725,7 @@ if st.session_state.results:
     st.markdown("### 📥 报告导出")
 
     exp_cols = st.columns(3)
+
     with exp_cols[0]:
         if st.session_state.word_bytes:
             ts = datetime.now().strftime("%m%d_%H%M")
@@ -732,17 +737,16 @@ if st.session_state.results:
                 use_container_width=True
             )
         else:
-            st.button("📄 Word报告（生成中...）", disabled=True,
-                      use_container_width=True)
+            st.button("📄 Word报告（生成中...）", disabled=True, use_container_width=True)
 
     with exp_cols[1]:
         json_rows = []
         for r in raw_ranked:
             json_rows.append({
-                "name":           r["name"],
-                "score":          r["score"],
-                "recommendation": r.get("recommendation","未提取"),
-                "sub_scores":     r.get("sub_scores", {}),
+                "name": r["name"],
+                "score": r["score"],
+                "recommendation": r.get("recommendation", "未提取"),
+                "sub_scores": r.get("sub_scores", {}),
             })
         json_str = json.dumps(json_rows, ensure_ascii=False, indent=2)
         st.download_button(
@@ -758,7 +762,7 @@ if st.session_state.results:
         for i, r in enumerate(raw_ranked, 1):
             csv_lines.append(
                 str(i) + "," + r["name"] + "," +
-                str(r["score"]) + "," + r.get("recommendation","未提取")
+                str(r["score"]) + "," + r.get("recommendation", "未提取")
             )
         csv_str = "\n".join(csv_lines)
         st.download_button(
@@ -781,7 +785,6 @@ if st.session_state.results:
                 )
 
 else:
-    # 空状态
     st.markdown(
         '<div style="text-align:center;padding:80px 0;color:#94a3b8">'
         '<div style="font-size:4rem">📋</div>'

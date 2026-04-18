@@ -1,7 +1,7 @@
 from pathlib import Path
 from services.model_router import call_llm
 
-PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "summary_prompt.txt"
+PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "candidate_prompt.txt"
 
 
 def load_prompt():
@@ -9,20 +9,15 @@ def load_prompt():
         return f.read()
 
 
-def summarize(job_title, jd, criteria, results):
+def analyze(job_title, jd, criteria, resume_text):
     prompt_template = load_prompt()
-
-    lines = [
-        r["name"] + "：" + str(r["score"]) + "分，" + r.get("recommendation", "未提取")
-        for r in results
-    ]
 
     user_prompt = (
         "岗位名称：\n" + job_title + "\n\n"
         "岗位JD：\n" + jd + "\n\n"
         "岗位评估标准：\n" + criteria + "\n\n"
-        "候选人列表（已按分数排序）：\n" + "\n".join(lines) + "\n\n"
-        "请基于这些候选人结果，输出总结报告。"
+        "候选人简历：\n" + resume_text + "\n\n"
+        "请严格按照模板输出。"
     )
 
     messages = [

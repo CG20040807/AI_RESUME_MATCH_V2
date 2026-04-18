@@ -12,13 +12,21 @@ def load_prompt():
 def analyze(job_title, jd, criteria, resume_text):
     prompt_template = load_prompt()
 
-    user_prompt = (
-        "岗位名称：\n" + job_title + "\n\n"
-        "岗位JD：\n" + jd + "\n\n"
-        "岗位评估标准：\n" + criteria + "\n\n"
-        "候选人简历：\n" + resume_text + "\n\n"
-        "请严格按照模板输出。"
-    )
+    user_prompt = f"""
+岗位名称：
+{job_title}
+
+岗位JD：
+{jd}
+
+岗位评估标准：
+{criteria}
+
+候选人简历：
+{resume_text}
+
+请严格按照模板输出。
+"""
 
     messages = [
         {"role": "system", "content": prompt_template},

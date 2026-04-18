@@ -1,21 +1,32 @@
-import os
-from openai import OpenAI
+import time
+from services.qwen_client import call_qwen
+from services.deepseek_client import call_deepseek
+
+MODEL_PRIORITY = ["qwen", "deepseek"]
 
 
-def call_deepseek(messages):
-    api_key = os.getenv("DEEPSEEK_API_KEY")
+def safe_call(func, messages, retries=2, sleep_sec=0.5):
+    last_err = None
+    for attempt in range(retries):
+        try:
+            return func(messages)
+        except Exception as e:
+            last_err = e
+            if attempt < retries - 1:
+                time.sleep(sleep_sec)
+    raise last_err
 
-    if not api_key:
-        raise RuntimeError("DEEPSEEK_API_KEY 未配置，请检查 .env 文件")
 
-    client = OpenAI(
-        api_key=api_key,
-        base_url="https://api.deepseek.com/v1"
-    )
-    resp = client.chat.completions.create(
-        model="deepseek-chat",
-        messages=messages,
-        temperature=0.2,
-        timeout=90
-    )
-    return resp.choices[0].message.content.strip()
+def call_llm(messages):
+    errors = []
+    for model in MODEL_PRIORITY:
+        try:
+            if model == "qwen":
+                return safe_call(call_qwen, messages)
+            if model == "deepseek":
+                return safe_call(call_deepseek, messages)
+        except Exception as e:
+            errors.append(model + ": " + str(e))
+            continue
+
+    return "⚠️ AI 服务暂时不可用，请检查 API Key。错误：" + " | ".join(errors)

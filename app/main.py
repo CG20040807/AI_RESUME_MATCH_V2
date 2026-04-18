@@ -1,8 +1,14 @@
 import sys
 from pathlib import Path
 
-sys.path.append(str(Path(__file__).resolve().parents[2]))
+# 获取项目根目录（关键！）
+ROOT_DIR = Path(__file__).resolve().parents[2]
 
+# 加入 Python 搜索路径
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+import streamlit as st
+st.write(ROOT_DIR)
 
 import sys
 import os

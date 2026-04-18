@@ -1,16 +1,4 @@
 import sys
-from pathlib import Path
-
-# 获取项目根目录（关键！）
-ROOT_DIR = Path(__file__).resolve().parents[2]
-
-# 加入 Python 搜索路径
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
-import streamlit as st
-st.write(ROOT_DIR)
-
-import sys
 import os
 import re
 import io
@@ -18,23 +6,23 @@ import json
 from pathlib import Path
 from datetime import datetime
 
-# ── 路径修复（必须最先）──
+# 项目根目录：main.py 在 app/ 里，所以根目录是 parents[1]
 ROOT_DIR = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT_DIR))
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 from dotenv import load_dotenv
 load_dotenv(ROOT_DIR / ".env")
 
 import streamlit as st
 
-# ── 页面配置（必须第一个st命令）──
+# 必须是第一个 st 命令
 st.set_page_config(
     page_title="AI 智能简历评估系统",
     page_icon="🧠",
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
 # ── 项目模块 ──
 from core.analyzer import analyze
 from core.scorer import extract_score

@@ -1,9 +1,7 @@
-import sys
-from pathlib import Path
+import importlib
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT_DIR))
-
+analyzer = importlib.import_module("core.analyzer")
+analyze = analyzer.analyze
 
 import sys
 import os

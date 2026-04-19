@@ -1,33 +1,40 @@
-from docx import Document
-from zipfile import BadZipFile
+from io import BytesIO
 
 
 def parse_docx(file):
-    """
-    解析 .docx 简历文件，提取段落和表格文本。
-    成功返回纯文本字符串，失败返回「【错误】...」格式字符串。
-    """
     try:
-        file.seek(0)
-        doc = Document(file)
+        from docx import Document
+    except Exception as exc:
+        return f"【解析失败】缺少 python-docx：{exc}"
 
-        content = []
-        for p in doc.paragraphs:
-            if p.text.strip():
-                content.append(p.text.strip())
+    try:
+        if hasattr(file, "getvalue"):
+            raw_bytes = file.getvalue()
+        elif hasattr(file, "read"):
+            raw_bytes = file.read()
+        else:
+            raw_bytes = file
+
+        stream = BytesIO(raw_bytes)
+        doc = Document(stream)
+
+        parts = []
+
+        for para in doc.paragraphs:
+            text = para.text.strip()
+            if text:
+                parts.append(text)
 
         for table in doc.tables:
             for row in table.rows:
-                cells = [c.text.strip() for c in row.cells if c.text.strip()]
-                if cells:
-                    content.append(" | ".join(cells))
+                row_text = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                if row_text:
+                    parts.append(" | ".join(row_text))
 
-        result = "\n".join(content)
-        if not result.strip():
-            return "【错误】文件内容为空，请检查简历是否有文字内容"
-        return result
+        text = "\n".join(parts).strip()
+        if not text:
+            return "【空文档】"
 
-    except BadZipFile:
-        return "【错误】文件损坏或非标准 .docx 格式"
-    except Exception as e:
-        return "【解析失败】" + str(e)
+        return text
+    except Exception as exc:
+        return f"【解析失败】{exc}"

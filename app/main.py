@@ -1,182 +1,89 @@
-import sys
-from pathlib import Path
-
-ROOT_DIR = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT_DIR))
-
-import sys
-import os
-import re
-import io
 import json
-from pathlib import Path
+import sys
 from datetime import datetime
+from pathlib import Path
 
-# ── 路径修复（必须最先，且只保留这一份）──
-# 当前文件位于 /app/main.py
-# 所以项目根目录是 parents[1]
-ROOT_DIR = Path(__file__).resolve().parents[1]
+import pandas as pd
+import streamlit as st
+from dotenv import load_dotenv
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from dotenv import load_dotenv
 load_dotenv(ROOT_DIR / ".env")
 
-import streamlit as st
-
-# ── 页面配置（必须是第一个 st 命令）──
-st.set_page_config(
-    page_title="AI 智能简历评估系统",
-    page_icon="🧠",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# ── 项目模块 ──
 from core.analyzer import analyze
-from core.scorer import extract_score
 from core.ranker import rank_candidates
-from core.summarizer import summarize
+from core.scorer import parse_analysis_result
+from core.summarizer import compare_candidates, summarize
+from utils.docx_exporter import export_single_to_docx, export_to_docx
 from utils.file_parser import parse_docx
 from utils.text_cleaner import clean_text
-from utils.docx_exporter import export_to_docx, export_single_to_docx
 
-# ══════════════════════════════════════════════════════
-#  全局样式
-# ══════════════════════════════════════════════════════
-st.markdown("""
+st.set_page_config(
+    page_title="AI 简历评估系统",
+    page_icon="AI",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+st.markdown(
+    """
 <style>
-.stApp { background: #f0f4f8; }
-
-/* 顶部横幅 */
-.hero {
-    background: linear-gradient(135deg,#1e3a5f 0%,#2563eb 55%,#7c3aed 100%);
-    border-radius:16px; padding:36px 40px; margin-bottom:28px;
-    color:white; position:relative; overflow:hidden;
+.stApp {
+    background: #f6f7fb;
 }
-.hero-badge {
-    display:inline-block; background:rgba(255,255,255,0.18);
-    border:1px solid rgba(255,255,255,0.3); border-radius:20px;
-    padding:3px 14px; font-size:0.75rem; margin-bottom:10px;
+.block-container {
+    padding-top: 1.2rem;
+    padding-bottom: 2rem;
 }
-.hero-title { font-size:2.2rem; font-weight:800; margin:0 0 6px; }
-.hero-sub   { font-size:1rem; opacity:0.85; margin:0; }
-
-/* 白卡片 */
 .card {
-    background:white; border-radius:14px; padding:24px;
-    box-shadow:0 1px 4px rgba(0,0,0,0.06),0 4px 16px rgba(0,0,0,0.03);
-    margin-bottom:16px; border:1px solid #e8edf2;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    padding: 18px 20px;
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.04);
 }
-.card-title {
-    font-size:0.75rem; font-weight:600; text-transform:uppercase;
-    letter-spacing:0.08em; color:#6b7280; margin-bottom:16px;
+.best-box {
+    background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+    border: 1px solid #e5e7eb;
+    border-radius: 18px;
+    padding: 18px 20px;
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.04);
 }
-
-/* 排名卡片 */
-.rank-card {
-    background:white; border-radius:12px; padding:16px 20px;
-    margin-bottom:10px; border:1.5px solid #e8edf2;
-    box-shadow:0 1px 3px rgba(0,0,0,0.04);
-    display:flex; align-items:center; gap:12px;
+.section-title {
+    font-size: 1rem;
+    font-weight: 700;
+    margin: 0 0 12px 0;
+    color: #111827;
 }
-.rank-below { border-color:#fca5a5 !important; background:#fff5f5 !important; }
-
-/* 指标卡 */
-.metric-card {
-    background:white; border-radius:12px; padding:20px;
-    text-align:center; border:1px solid #e8edf2;
-    box-shadow:0 1px 4px rgba(0,0,0,0.04);
+.muted {
+    color: #6b7280;
+    font-size: 0.92rem;
 }
-.metric-icon  { font-size:1.4rem; margin-bottom:6px; }
-.metric-val   { font-size:1.8rem; font-weight:800; color:#1e293b; line-height:1.2; }
-.metric-label { font-size:0.78rem; color:#6b7280; margin-top:4px; }
-
-/* 评分条 */
-.sbar-wrap  { margin:5px 0; }
-.sbar-label { font-size:0.8rem; color:#475569; margin-bottom:3px; display:flex; justify-content:space-between; }
-.sbar-bg    { background:#f1f5f9; border-radius:6px; height:10px; overflow:hidden; }
-.sbar-fill  { height:100%; border-radius:6px; }
-
-/* 推荐标签 */
-.badge { display:inline-block; border-radius:20px; padding:3px 12px; font-size:0.75rem; font-weight:600; }
-.b-green  { background:#dcfce7; color:#15803d; }
-.b-blue   { background:#dbeafe; color:#1d4ed8; }
-.b-yellow { background:#fef9c3; color:#854d0e; }
-.b-red    { background:#fee2e2; color:#b91c1c; }
-.b-gray   { background:#f1f5f9; color:#475569; }
-
-/* 状态行 */
-.sitem { padding:10px 16px; border-radius:8px; margin:4px 0; font-size:0.88rem; }
-.srun  { background:#eff6ff; border-left:3px solid #3b82f6; color:#1e40af; }
-.sdone { background:#f0fdf4; border-left:3px solid #22c55e; color:#15803d; }
-.serr  { background:#fef2f2; border-left:3px solid #ef4444; color:#991b1b; }
-
-/* 对比表 */
-.ctable { width:100%; border-collapse:collapse; font-size:0.87rem; }
-.ctable th { background:#1e3a5f; color:white; padding:10px 14px; text-align:left; font-weight:600; }
-.ctable td { padding:10px 14px; border-bottom:1px solid #e8edf2; }
-.ctable tr:nth-child(even) td { background:#f8fafc; }
-
-/* 侧边栏深色 */
-[data-testid="stSidebar"] { background:#1e293b !important; }
-[data-testid="stSidebar"] * { color:#e2e8f0 !important; }
-[data-testid="stSidebar"] .stMarkdown h3 { color:#93c5fd !important; }
-
-/* 按钮悬停 */
-.stButton > button { border-radius:10px !important; font-weight:600 !important; }
+.small {
+    color: #6b7280;
+    font-size: 0.86rem;
+}
+.subtle {
+    color: #374151;
+}
+hr {
+    border-color: #e5e7eb;
+}
+[data-testid="stSidebar"] {
+    background: #ffffff;
+    border-right: 1px solid #e5e7eb;
+}
+[data-testid="stSidebar"] * {
+    color: #111827;
+}
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
-
-# ══════════════════════════════════════════════════════
-#  辅助函数
-# ══════════════════════════════════════════════════════
-def score_hex(s):
-    if s >= 80:
-        return "#16a34a"
-    if s >= 65:
-        return "#2563eb"
-    if s >= 50:
-        return "#d97706"
-    return "#dc2626"
-
-def rec_badge_html(rec):
-    m = {
-        "强烈推荐": ("b-green", "⭐ 强烈推荐"),
-        "推荐": ("b-blue", "✅ 推荐"),
-        "观察": ("b-yellow", "👀 观察"),
-        "不推荐": ("b-red", "❌ 不推荐"),
-    }
-    cls, label = m.get(rec, ("b-gray", "— " + str(rec)))
-    return '<span class="badge ' + cls + '">' + label + '</span>'
-
-def score_bar_html(label, val, max_val=100):
-    pct = min(100, max(0, int(val / max_val * 100)))
-    color = score_hex(val)
-    return (
-        '<div class="sbar-wrap">'
-        '<div class="sbar-label"><span>' + label + '</span>'
-        '<span><b>' + str(val) + '</b>/' + str(max_val) + '</span></div>'
-        '<div class="sbar-bg"><div class="sbar-fill" style="width:' + str(pct) + '%;background:' + color + '"></div></div>'
-        '</div>'
-    )
-
-def extract_sub_scores(text):
-    keys = ["技能匹配", "经验匹配", "教育背景", "综合潜力", "表达沟通"]
-    out = {}
-    for k in keys:
-        m = re.search(k + r"[:：]\s*(\d+)", text)
-        out[k] = int(m.group(1)) if m else None
-    return out
-
-def log_cls(log_line):
-    return "sdone" if log_line.startswith("✅") else "serr"
-
-
-# ══════════════════════════════════════════════════════
-#  Session State
-# ══════════════════════════════════════════════════════
 DEFAULTS = {
     "results": [],
     "summary": "",
@@ -186,163 +93,157 @@ DEFAULTS = {
     "criteria_cache": "",
     "logs": [],
     "expanded_all": False,
+    "comparison_md": "",
 }
 
-for _k, _v in DEFAULTS.items():
-    if _k not in st.session_state:
-        st.session_state[_k] = _v
+for key, value in DEFAULTS.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
 
 
-# ══════════════════════════════════════════════════════
-#  侧边栏
-# ══════════════════════════════════════════════════════
+def join_lines(items):
+    if not items:
+        return "暂无"
+    return "\n".join(f"- {x}" for x in items)
+
+
+def flatten_results_for_table(results):
+    rows = []
+    for item in results:
+        rows.append(
+            {
+                "排名": item.get("rank", 0),
+                "姓名": item.get("name", ""),
+                "总分": item.get("score", 0),
+                "推荐意见": item.get("recommendation", ""),
+                "置信度": item.get("confidence", 0),
+                "摘要": item.get("summary", ""),
+                "优势": "；".join(item.get("strengths", [])),
+                "不足": "；".join(item.get("weaknesses", [])),
+                "风险": "；".join(item.get("risks", [])),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def results_to_json_bytes(results):
+    payload = []
+    for item in results:
+        payload.append(
+            {
+                "rank": item.get("rank", 0),
+                "name": item.get("name", ""),
+                "score": item.get("score", 0),
+                "recommendation": item.get("recommendation", ""),
+                "confidence": item.get("confidence", 0),
+                "summary": item.get("summary", ""),
+                "match_reason": item.get("match_reason", ""),
+                "strengths": item.get("strengths", []),
+                "weaknesses": item.get("weaknesses", []),
+                "risks": item.get("risks", []),
+                "questions": item.get("questions", []),
+                "sub_scores": item.get("sub_scores", {}),
+            }
+        )
+    return json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+
+
+def results_to_csv_bytes(results):
+    df = flatten_results_for_table(results)
+    return df.to_csv(index=False).encode("utf-8-sig")
+
+
 with st.sidebar:
-    st.markdown("### 🧠 AI 简历评估系统")
-    st.markdown("---")
+    st.title("简历评估系统")
+    st.caption("结构化解析、评分、排序、总结、导出")
+    st.divider()
 
-    st.markdown("### ⚙️ 筛选与排序")
-    score_threshold = st.slider("最低分数门槛", 0, 100, 0, 5, help="低于此分候选人标红显示")
+    st.subheader("筛选与排序")
+    score_threshold = st.slider("最低分数门槛", 0, 100, 60, 5)
     all_recs = ["强烈推荐", "推荐", "观察", "不推荐", "未提取", "无法评估"]
-    rec_filter = st.multiselect("推荐等级筛选", all_recs, default=all_recs)
-    sort_by = st.radio("排序方式", ["综合评分（高→低）", "综合评分（低→高）", "文件名"], index=0)
+    rec_filter = st.multiselect("推荐等级", all_recs, default=all_recs)
+    sort_by = st.radio("排序方式", ["综合评分（高到低）", "综合评分（低到高）", "文件名"], index=0)
 
-    st.markdown("---")
-    st.markdown("### 📊 当前数据")
+    st.divider()
+    st.subheader("说明")
+    st.write("1. 填写岗位信息")
+    st.write("2. 粘贴岗位 JD 和评估标准")
+    st.write("3. 上传 docx 简历")
+    st.write("4. 点击开始分析")
+    st.write("5. 查看总结、对比和导出")
 
     if st.session_state.results:
-        _r = st.session_state.results
-        _n = len(_r)
-        _avg = sum(x["score"] for x in _r) / _n if _n else 0
-        _pass = sum(1 for x in _r if x["score"] >= score_threshold)
-        _rec = sum(1 for x in _r if x.get("recommendation") in ("强烈推荐", "推荐"))
-
-        st.markdown(
-            '<div style="color:#94a3b8;font-size:0.82rem;line-height:2.4">'
-            '👥 候选人：<b style="color:white">' + str(_n) + '</b><br>'
-            '✅ 达标：<b style="color:#4ade80">' + str(_pass) + '</b><br>'
-            '📈 均分：<b style="color:white">' + f"{_avg:.1f}" + '</b><br>'
-            '⭐ 推荐：<b style="color:#fbbf24">' + str(_rec) + ' 人</b>'
-            '</div>',
-            unsafe_allow_html=True
-        )
-        st.markdown("")
-        if st.button("🗑️ 清空所有结果", use_container_width=True):
-            st.session_state.results = []
-            st.session_state.summary = ""
-            st.session_state.word_bytes = None
-            st.session_state.logs = []
-            st.rerun()
-    else:
-        st.markdown('<div style="color:#64748b;font-size:0.82rem">暂无结果</div>', unsafe_allow_html=True)
-
-    st.markdown("---")
-    st.markdown("### ❓ 使用说明")
-    st.markdown(
-        '<div style="font-size:0.79rem;color:#94a3b8;line-height:2.2">'
-        '1️⃣ 填写岗位名称<br>2️⃣ 粘贴岗位JD<br>3️⃣ 填写评估标准<br>'
-        '4️⃣ 上传 .docx 简历<br>5️⃣ 点击「开始分析」<br>6️⃣ 查看结果并导出</div>',
-        unsafe_allow_html=True
-    )
-    st.markdown("---")
-    st.markdown(
-        '<div style="color:#475569;font-size:0.7rem;text-align:center">'
-        'AI Resume Assessment v2<br>Qwen · DeepSeek · Multi-Model</div>',
-        unsafe_allow_html=True
-    )
+        st.divider()
+        st.subheader("当前数据")
+        rs = st.session_state.results
+        st.metric("候选人数", len(rs))
+        st.metric("平均分", f"{sum(x['score'] for x in rs) / len(rs):.1f}")
+        st.metric("推荐人数", sum(1 for x in rs if x.get("recommendation") in ("强烈推荐", "推荐")))
 
 
-# ══════════════════════════════════════════════════════
-#  顶部横幅
-# ══════════════════════════════════════════════════════
-st.markdown(
-    '<div class="hero">'
-    '<div class="hero-badge">🤖 AI Powered · Multi-Model Fallback · v2.0</div>'
-    '<div class="hero-title">🧠 AI 智能简历评估系统</div>'
-    '<div class="hero-sub">批量简历分析 · 多维评分排名 · 候选人对比 · Word / CSV / JSON 导出</div>'
-    '</div>',
-    unsafe_allow_html=True
-)
+st.title("AI 简历评估系统")
+st.caption("把简历筛选从“看文本”升级成“看结构、看结论、看决策”。")
 
+st.markdown('<div class="card"><div class="section-title">岗位信息与简历上传</div>', unsafe_allow_html=True)
 
-# ══════════════════════════════════════════════════════
-#  输入区
-# ══════════════════════════════════════════════════════
-st.markdown('<div class="card"><div class="card-title">📋 岗位信息 &amp; 简历上传</div>', unsafe_allow_html=True)
+col1, col2, col3 = st.columns([1.2, 1.2, 1.0])
 
-col_l, col_m, col_r = st.columns([1.2, 1.2, 1])
-
-with col_l:
+with col1:
     job_title = st.text_input(
-        "📌 岗位名称 *",
+        "岗位名称",
         value=st.session_state.job_title_cache,
-        placeholder="例：产品经理实习生 / 数据分析师"
+        placeholder="例如：产品经理实习生",
     )
     jd = st.text_area(
-        "📄 岗位JD *",
+        "岗位 JD",
         value=st.session_state.jd_cache,
-        height=180,
-        placeholder="粘贴招聘JD，越详细分析越准确..."
+        height=190,
+        placeholder="粘贴岗位描述，越完整越好。",
     )
 
-with col_m:
+with col2:
     criteria = st.text_area(
-        "📐 评估标准 *",
+        "评估标准",
         value=st.session_state.criteria_cache,
-        height=120,
-        placeholder="例：优先有产品实习、熟悉SQL、逻辑表达强..."
+        height=130,
+        placeholder="例如：产品实习经历、逻辑表达、数据分析能力等。",
     )
     extra_notes = st.text_area(
-        "📝 补充备注（可选）",
-        height=88,
-        placeholder="其他要求，如：不考虑跨专业候选人..."
+        "补充备注",
+        height=100,
+        placeholder="例如：只看本季度可到岗者、偏好有校招经验者等。",
     )
 
-with col_r:
+with col3:
     uploaded_files = st.file_uploader(
-        "📂 上传简历（.docx，支持批量）",
+        "上传简历",
         type=["docx"],
         accept_multiple_files=True,
-        help="仅支持 Word .docx 格式"
     )
     if uploaded_files:
-        file_list_html = "".join(
-            '<div style="font-size:0.8rem;color:#3b82f6;padding:2px 0">📄 ' + f.name + '</div>'
-            for f in uploaded_files
-        )
-        st.markdown(
-            '<div style="background:#eff6ff;border-radius:10px;padding:12px 16px;margin-top:8px">'
-            '<div style="color:#1d4ed8;font-weight:600;margin-bottom:6px">📂 已上传 '
-            + str(len(uploaded_files)) + ' 份简历</div>' +
-            file_list_html + '</div>',
-            unsafe_allow_html=True
-        )
+        st.success(f"已上传 {len(uploaded_files)} 份简历")
+        for f in uploaded_files:
+            st.write(f.name)
     else:
-        st.markdown(
-            '<div style="background:#f8fafc;border:2px dashed #cbd5e1;border-radius:10px;'
-            'padding:30px;text-align:center;margin-top:8px;color:#94a3b8">'
-            '<div style="font-size:2rem">📁</div>'
-            '<div style="font-size:0.85rem;margin-top:6px">拖拽文件或点击上传</div></div>',
-            unsafe_allow_html=True
-        )
+        st.info("支持批量上传 .docx 文件。")
 
-st.markdown('</div>', unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
 
-
-# ── 按钮行 ──
-b1, b2, b3, b4 = st.columns([2, 1, 1, 1])
-with b1:
-    start_btn = st.button("🚀 开始分析", use_container_width=True, type="primary")
-with b2:
-    clear_btn = st.button("🔄 清空输入", use_container_width=True)
-with b3:
-    demo_btn = st.button("💡 填入示例", use_container_width=True)
-with b4:
-    help_btn = st.button("📖 使用说明", use_container_width=True)
+btn1, btn2, btn3, btn4 = st.columns([2, 1, 1, 1])
+with btn1:
+    start_btn = st.button("开始分析", use_container_width=True, type="primary")
+with btn2:
+    clear_btn = st.button("清空输入", use_container_width=True)
+with btn3:
+    demo_btn = st.button("填入示例", use_container_width=True)
+with btn4:
+    help_btn = st.button("使用说明", use_container_width=True)
 
 if clear_btn:
     st.session_state.job_title_cache = ""
     st.session_state.jd_cache = ""
     st.session_state.criteria_cache = ""
+    st.session_state.expanded_all = False
     st.rerun()
 
 if demo_btn:
@@ -353,451 +254,329 @@ if demo_btn:
     )
     st.session_state.criteria_cache = (
         "优先有产品实习经验；熟悉AI工具使用；具备数据分析能力；"
-        "逻辑表达清晰；大数据、计算机专业背景加分。"
+        "逻辑表达清晰；计算机或数据相关专业加分。"
     )
     st.rerun()
 
 if help_btn:
-    with st.expander("📖 使用说明", expanded=True):
-        st.markdown("""
-**① 填写岗位信息** — JD和评估标准越详细，AI分析越准确。
+    st.info(
+        "先填岗位名称、JD 和评估标准，再上传简历。分析完成后可以查看总览、逐人详情、候选人对比和导出报告。"
+    )
 
-**② 上传简历** — 支持批量 `.docx`，每份对应一位候选人。
-
-**③ 开始分析** — 实时进度显示，完成后自动排名。
-
-**④ 查看结果** — 排名总览 · 逐人详情（含分数条）· 候选人对比 · 综合总结。
-
-**⑤ 多种导出** — Word完整报告 · 单人报告 · JSON数据 · CSV排名表。
-
-💡 侧边栏可按分数门槛和推荐等级筛选候选人。
-        """)
-
-
-# ══════════════════════════════════════════════════════
-#  主分析流程
-# ══════════════════════════════════════════════════════
 if start_btn:
     errors = []
     if not job_title.strip():
         errors.append("请填写岗位名称")
     if not jd.strip():
-        errors.append("请填写岗位JD")
+        errors.append("请填写岗位 JD")
     if not criteria.strip():
         errors.append("请填写评估标准")
     if not uploaded_files:
         errors.append("请上传至少一份简历")
 
     if errors:
-        for e in errors:
-            st.error("⚠️ " + e)
+        for err in errors:
+            st.error(err)
         st.stop()
 
-    # 缓存输入
-    st.session_state.job_title_cache = job_title
-    st.session_state.jd_cache = jd
-    st.session_state.criteria_cache = criteria
+    st.session_state.job_title_cache = job_title.strip()
+    st.session_state.jd_cache = jd.strip()
+    st.session_state.criteria_cache = criteria.strip()
 
-    full_criteria = criteria
+    full_criteria = criteria.strip()
     if extra_notes.strip():
-        full_criteria = criteria + "\n\n补充要求：" + extra_notes.strip()
+        full_criteria = full_criteria + "\n\n补充备注：\n" + extra_notes.strip()
 
     results = []
-    total = len(uploaded_files)
     logs = []
+    progress = st.progress(0)
+    status_box = st.empty()
 
-    st.markdown("---")
-    st.markdown("### ⏳ 分析进行中...")
-    prog_bar = st.progress(0)
-    status_ph = st.empty()
-    log_ph = st.empty()
+    for idx, file in enumerate(uploaded_files, start=1):
+        candidate_name = Path(file.name).stem
+        status_box.markdown(f"正在分析 {idx}/{len(uploaded_files)}：{candidate_name}")
 
-    for i, file in enumerate(uploaded_files):
-        name = file.name.replace(".docx", "")
-        status_ph.markdown(
-            '<div class="sitem srun">🔄 <b>正在分析（'
-            + str(i + 1) + '/' + str(total) + '）：' + name + '</b></div>',
-            unsafe_allow_html=True
-        )
-
-        raw = parse_docx(file)
-
-        if not raw or str(raw).startswith("【"):
-            entry = {
-                "name": name,
-                "analysis": "⚠️ 简历解析失败：" + str(raw),
+        raw_text = parse_docx(file)
+        if not raw_text or str(raw_text).startswith("【"):
+            result = {
+                "name": candidate_name,
                 "score": 0,
                 "recommendation": "无法评估",
-                "sub_scores": {}
+                "confidence": 0,
+                "summary": "简历解析失败",
+                "match_reason": "",
+                "strengths": [],
+                "weaknesses": [],
+                "risks": [],
+                "questions": [],
+                "sub_scores": {},
+                "raw_analysis": str(raw_text),
+                "raw_json": {},
             }
-            logs.append("❌ " + name + " — 解析失败")
+            logs.append(f"{candidate_name}：解析失败")
         else:
-            text = clean_text(raw)
-            try:
-                analysis = analyze(job_title, jd, full_criteria, text)
-            except Exception as exc:
-                analysis = "AI分析异常：" + str(exc)
+            resume_text = clean_text(raw_text)
+            analysis_text = analyze(job_title, jd, full_criteria, resume_text)
+            parsed = parse_analysis_result(analysis_text)
 
-            score = extract_score(analysis)
-            rec = "未提取"
-            m = re.search(r"推荐建议[:：]\s*(强烈推荐|推荐|观察|不推荐)", analysis)
-            if m:
-                rec = m.group(1).strip()
-
-            entry = {
-                "name": name,
-                "analysis": analysis,
-                "score": score,
-                "recommendation": rec,
-                "sub_scores": extract_sub_scores(analysis)
+            result = {
+                "name": candidate_name,
+                "score": parsed["score"],
+                "recommendation": parsed["recommendation"],
+                "confidence": parsed["confidence"],
+                "summary": parsed["summary"],
+                "match_reason": parsed["match_reason"],
+                "strengths": parsed["strengths"],
+                "weaknesses": parsed["weaknesses"],
+                "risks": parsed["risks"],
+                "questions": parsed["questions"],
+                "sub_scores": parsed["sub_scores"],
+                "raw_analysis": analysis_text,
+                "raw_json": parsed["raw_json"],
             }
-            logs.append("✅ " + name + " — " + str(score) + "分 · " + rec)
+            logs.append(f"{candidate_name}：{result['score']} 分，{result['recommendation']}")
 
-        results.append(entry)
-        prog_bar.progress((i + 1) / total)
-
-        log_html = "".join(
-            '<div class="sitem ' + log_cls(l) + '">' + l + '</div>'
-            for l in logs
-        )
-        log_ph.markdown(log_html, unsafe_allow_html=True)
-
-    status_ph.markdown(
-        '<div class="sitem sdone">✅ <b>所有简历分析完成，正在生成总结...</b></div>',
-        unsafe_allow_html=True
-    )
+        results.append(result)
+        progress.progress(idx / len(uploaded_files))
 
     ranked = rank_candidates(results)
+    summary_md = summarize(job_title, jd, full_criteria, ranked)
 
     try:
-        summary = summarize(job_title, jd, full_criteria, ranked)
+        word_bytes = export_to_docx(job_title, jd, full_criteria, ranked, summary_md)
     except Exception as exc:
-        summary = "总结生成失败：" + str(exc)
-
-    try:
-        word_bytes = export_to_docx(job_title, jd, full_criteria, ranked, summary)
-    except Exception:
         word_bytes = None
+        st.warning(f"Word 导出失败：{exc}")
 
     st.session_state.results = ranked
-    st.session_state.summary = summary
+    st.session_state.summary = summary_md
     st.session_state.word_bytes = word_bytes
     st.session_state.logs = logs
+    st.session_state.comparison_md = ""
 
-    prog_bar.empty()
-    status_ph.empty()
-    log_ph.empty()
-    st.success("🎉 分析完成！共处理 " + str(total) + " 份简历")
+    st.success(f"分析完成，共处理 {len(uploaded_files)} 份简历。")
     st.rerun()
 
-
-# ══════════════════════════════════════════════════════
-#  结果展示
-# ══════════════════════════════════════════════════════
 if st.session_state.results:
-    raw_ranked = st.session_state.results
-    summary = st.session_state.summary
-    job_cache = st.session_state.job_title_cache
+    ranked = st.session_state.results
 
-    # ── 排序 ──
-    if sort_by == "综合评分（高→低）":
-        disp = sorted(raw_ranked, key=lambda x: x["score"], reverse=True)
-    elif sort_by == "综合评分（低→高）":
-        disp = sorted(raw_ranked, key=lambda x: x["score"])
+    if sort_by == "综合评分（高到低）":
+        display_results = sorted(ranked, key=lambda x: x["score"], reverse=True)
+    elif sort_by == "综合评分（低到高）":
+        display_results = sorted(ranked, key=lambda x: x["score"])
     else:
-        disp = sorted(raw_ranked, key=lambda x: x["name"])
+        display_results = sorted(ranked, key=lambda x: x["name"])
 
-    # ── 推荐等级筛选 ──
-    disp = [r for r in disp if r.get("recommendation", "未提取") in rec_filter]
+    display_results = [
+        item for item in display_results if item.get("recommendation", "未提取") in rec_filter
+    ]
 
-    # ── 指标卡 ──
-    st.markdown("---")
-    st.markdown("## 📊 评估结果  ·  " + job_cache)
+    st.divider()
+    st.subheader("结果总览")
 
-    _n = len(raw_ranked)
-    _avg = sum(r["score"] for r in raw_ranked) / _n if _n else 0
-    _pass = sum(1 for r in raw_ranked if r["score"] >= score_threshold)
-    _rec = sum(1 for r in raw_ranked if r.get("recommendation") in ("强烈推荐", "推荐"))
-    top1 = raw_ranked[0] if raw_ranked else {}
+    total_n = len(ranked)
+    avg_score = sum(x["score"] for x in ranked) / total_n if total_n else 0
+    best = ranked[0] if ranked else {}
+    best_count = sum(1 for x in ranked if x.get("recommendation") in ("强烈推荐", "推荐"))
+    pass_count = sum(1 for x in ranked if x["score"] >= score_threshold)
 
-    mc = st.columns(5)
-    for col, icon, val, label in [
-        (mc[0], "🥇", top1.get("name", "—"), "最佳候选人"),
-        (mc[1], "🎯", str(top1.get("score", 0)) + " 分", "最高分"),
-        (mc[2], "📈", f"{_avg:.1f} 分", "平均分"),
-        (mc[3], "👥", str(_pass) + "/" + str(_n), "达标（≥" + str(score_threshold) + "分）"),
-        (mc[4], "⭐", str(_rec) + " 人", "推荐人数"),
-    ]:
-        col.markdown(
-            '<div class="metric-card">'
-            '<div class="metric-icon">' + icon + '</div>'
-            '<div class="metric-val">' + str(val) + '</div>'
-            '<div class="metric-label">' + label + '</div>'
-            '</div>',
-            unsafe_allow_html=True
-        )
+    metric_cols = st.columns(4)
+    metric_cols[0].metric("候选人数", total_n)
+    metric_cols[1].metric("平均分", f"{avg_score:.1f}")
+    metric_cols[2].metric("达标人数", pass_count)
+    metric_cols[3].metric("推荐人数", best_count)
 
-    # ── 分布图 ──
-    st.markdown("")
-    with st.expander("📊 分数分布图", expanded=True):
-        chart_data = {r["name"][:12]: r["score"] for r in raw_ranked}
-        st.bar_chart(chart_data, height=220)
+    if best:
+        st.markdown('<div class="best-box">', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">推荐面试对象</div>', unsafe_allow_html=True)
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            st.metric("姓名", best["name"])
+            st.metric("总分", best["score"])
+            st.metric("推荐意见", best.get("recommendation", "未提取"))
+        with c2:
+            st.write(best.get("summary", ""))
+            if best.get("match_reason"):
+                st.markdown("**匹配原因**")
+                st.write(best["match_reason"])
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    # ── 工具栏 ──
-    st.markdown("")
-    tb = st.columns([2, 1, 1, 1, 1])
-    with tb[0]:
-        kw = st.text_input("🔍 搜索候选人", placeholder="输入姓名筛选...", label_visibility="collapsed")
-        if kw:
-            disp = [r for r in disp if kw.lower() in r["name"].lower()]
-    with tb[1]:
-        if st.button("📂 全部展开", use_container_width=True):
-            st.session_state.expanded_all = True
-    with tb[2]:
-        if st.button("📁 全部收起", use_container_width=True):
-            st.session_state.expanded_all = False
-    with tb[3]:
-        if st.button("🔄 刷新", use_container_width=True):
-            st.rerun()
-    with tb[4]:
-        st.markdown(
-            '<div style="text-align:right;color:#6b7280;font-size:0.8rem;padding-top:8px">'
-            '显示 ' + str(len(disp)) + '/' + str(_n) + '</div>',
-            unsafe_allow_html=True
-        )
+    st.markdown("### 排名表")
+    overview_df = flatten_results_for_table(ranked)
+    st.dataframe(overview_df, use_container_width=True, hide_index=True)
 
-    st.markdown("---")
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(
+        ["总览详情", "逐人详情", "候选人对比", "综合总结", "导出"]
+    )
 
-    # ══════ 四个 Tab ══════
-    tab1, tab2, tab3, tab4 = st.tabs(["🏅 排名总览", "🔍 逐人详情", "📊 候选人对比", "📋 综合总结"])
-
-    # ── Tab1：排名总览 ──
     with tab1:
-        if not disp:
-            st.info("暂无符合筛选条件的候选人")
-        for i, r in enumerate(disp):
-            sc = r["score"]
-            color = score_hex(sc)
-            medal = ["🥇", "🥈", "🥉"][i] if i < 3 else "#" + str(i + 1)
-            badge = rec_badge_html(r.get("recommendation", "未提取"))
-            below = sc < score_threshold
-            extra_cls = " rank-below" if below else ""
-            warn_html = (
-                '<span style="color:#ef4444;font-size:0.75rem;margin-left:8px">⚠️低于门槛</span>'
-                if below else ""
-            )
-            st.markdown(
-                '<div class="rank-card' + extra_cls + '">'
-                '<span style="font-size:1.3rem;min-width:40px">' + medal + '</span>'
-                '<span style="font-weight:600;font-size:1rem;color:#1e293b;flex:1">' + r["name"] + '</span>'
-                + badge +
-                '<span style="font-size:1.3rem;font-weight:800;color:' + color + ';margin-left:12px">'
-                + str(sc) +
-                '<span style="font-size:0.7rem;color:#94a3b8">/100</span></span>'
-                + warn_html +
-                '</div>',
-                unsafe_allow_html=True
-            )
-
-    # ── Tab2：逐人详情 ──
-    with tab2:
-        if not disp:
-            st.info("暂无符合筛选条件的候选人")
-        for i, r in enumerate(disp):
-            sc = r["score"]
-            medal = ["🥇", "🥈", "🥉"][i] if i < 3 else "#" + str(i + 1)
-            rec = r.get("recommendation", "未提取")
-            exp = st.session_state.expanded_all or (i == 0)
-
-            with st.expander(medal + "  " + r["name"] + "  ·  " + str(sc) + "分  ·  " + rec, expanded=exp):
-                left, right = st.columns([1, 1.6])
-
+        st.write("根据当前排序和筛选条件展示结果。")
+        for item in display_results:
+            with st.expander(
+                f"第 {item.get('rank', 0)} 名  |  {item['name']}  |  {item['score']} 分  |  {item.get('recommendation', '未提取')}"
+            ):
+                left, right = st.columns([1, 2])
                 with left:
-                    bars_html = score_bar_html("综合总分", sc)
-                    sub = r.get("sub_scores", {})
-                    for sk, sv in sub.items():
-                        if sv is not None:
-                            bars_html += score_bar_html(sk, sv)
-
-                    st.markdown(
-                        '<div style="background:#f8fafc;border-radius:10px;padding:16px">'
-                        '<div style="font-size:0.75rem;font-weight:600;color:#6b7280;'
-                        'text-transform:uppercase;margin-bottom:12px">评分详情</div>'
-                        + bars_html +
-                        '<div style="margin-top:14px;padding-top:12px;border-top:1px solid #e8edf2">'
-                        + rec_badge_html(rec) +
-                        '</div></div>',
-                        unsafe_allow_html=True
-                    )
-
-                    try:
-                        sb = export_single_to_docx(
-                            job_cache,
-                            st.session_state.jd_cache,
-                            st.session_state.criteria_cache,
-                            r
-                        )
-                        st.download_button(
-                            "📥 导出 " + r["name"] + " 报告",
-                            data=sb,
-                            file_name=r["name"] + "_评估报告.docx",
-                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                            use_container_width=True,
-                            key="sdl_" + str(i)
-                        )
-                    except Exception:
-                        pass
-
+                    st.metric("总分", item["score"])
+                    st.metric("推荐意见", item.get("recommendation", "未提取"))
+                    st.metric("置信度", item.get("confidence", 0))
+                    if item.get("sub_scores"):
+                        st.markdown("**分项评分**")
+                        for k, v in item["sub_scores"].items():
+                            st.write(f"{k}：{v if v is not None else '未提取'}")
                 with right:
-                    st.markdown("**📝 AI 分析内容**")
-                    st.markdown(r["analysis"])
+                    st.markdown("**摘要**")
+                    st.write(item.get("summary", ""))
+                    st.markdown("**优势**")
+                    st.write(join_lines(item.get("strengths", [])))
+                    st.markdown("**不足**")
+                    st.write(join_lines(item.get("weaknesses", [])))
+                    st.markdown("**风险**")
+                    st.write(join_lines(item.get("risks", [])))
+                    st.markdown("**面试问题**")
+                    st.write(join_lines(item.get("questions", [])))
 
-    # ── Tab3：候选人对比 ──
-    with tab3:
-        if len(disp) < 2:
-            st.info("至少需要 2 位候选人才能进行对比")
-        else:
-            all_names = [r["name"] for r in disp]
-            default_sel = all_names[:min(4, len(all_names))]
-            sel_names = st.multiselect(
-                "选择要对比的候选人（最多5人）",
-                all_names,
-                default=default_sel
-            )
-            clist = [r for r in disp if r["name"] in sel_names][:5]
+    with tab2:
+        st.write("每位候选人的完整结构化结果。")
+        for i, item in enumerate(display_results):
+            exp = st.session_state.expanded_all or i == 0
+            with st.expander(
+                f"{item['name']}  |  {item['score']} 分  |  {item.get('recommendation', '未提取')}",
+                expanded=exp,
+            ):
+                left, right = st.columns([1, 2])
+                with left:
+                    st.metric("总分", item["score"])
+                    st.metric("推荐意见", item.get("recommendation", "未提取"))
+                    st.metric("置信度", item.get("confidence", 0))
+                    if item.get("sub_scores"):
+                        st.markdown("**分项评分**")
+                        for k, v in item["sub_scores"].items():
+                            st.write(f"{k}：{v if v is not None else '未提取'}")
+                with right:
+                    st.markdown("**匹配原因**")
+                    st.write(item.get("match_reason", ""))
+                    st.markdown("**摘要**")
+                    st.write(item.get("summary", ""))
+                    st.markdown("**优势**")
+                    st.write(join_lines(item.get("strengths", [])))
+                    st.markdown("**不足**")
+                    st.write(join_lines(item.get("weaknesses", [])))
+                    st.markdown("**风险**")
+                    st.write(join_lines(item.get("risks", [])))
+                    st.markdown("**面试问题**")
+                    st.write(join_lines(item.get("questions", [])))
 
-            if len(clist) >= 2:
-                hdr = "<tr><th>维度</th>" + "".join(
-                    "<th>" + r["name"] + "</th>" for r in clist
-                ) + "</tr>"
-
-                def sc_cell(r, key=None):
-                    v = r["score"] if key is None else r.get("sub_scores", {}).get(key)
-                    if v is None:
-                        return "—"
-                    c = score_hex(v)
-                    return '<span style="font-weight:700;color:' + c + '">' + str(v) + '</span>'
-
-                dim_rows = ""
-                dim_rows += "<tr><td><b>推荐意见</b></td>"
-                for r in clist:
-                    dim_rows += "<td>" + r.get("recommendation", "—") + "</td>"
-                dim_rows += "</tr>"
-
-                dim_rows += "<tr><td><b>综合总分</b></td>"
-                for r in clist:
-                    dim_rows += "<td>" + sc_cell(r) + "</td>"
-                dim_rows += "</tr>"
-
-                for dim in ["技能匹配", "经验匹配", "教育背景", "综合潜力", "表达沟通"]:
-                    dim_rows += "<tr><td><b>" + dim + "</b></td>"
-                    for r in clist:
-                        dim_rows += "<td>" + sc_cell(r, dim) + "</td>"
-                    dim_rows += "</tr>"
-
-                st.markdown(
-                    '<table class="ctable"><thead>' + hdr +
-                    '</thead><tbody>' + dim_rows + '</tbody></table>',
-                    unsafe_allow_html=True
+                single_bytes = export_single_to_docx(
+                    st.session_state.job_title_cache,
+                    st.session_state.jd_cache,
+                    st.session_state.criteria_cache,
+                    item,
                 )
-                st.markdown("")
-                st.markdown("**📊 分数对比图**")
-                chart_cmp = {r["name"][:12]: r["score"] for r in clist}
-                st.bar_chart(chart_cmp, height=200)
+                st.download_button(
+                    f"下载 {item['name']} 的单人报告",
+                    data=single_bytes,
+                    file_name=f"{item['name']}_评估报告.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    use_container_width=True,
+                    key=f"single_{i}",
+                )
 
-    # ── Tab4：综合总结 ──
-    with tab4:
-        if summary:
-            st.markdown(summary)
-        else:
-            st.info("暂无总结内容")
+    with tab3:
+        st.write("选择 2 到 5 位候选人进行对比。")
+        all_names = [x["name"] for x in display_results]
+        default_sel = all_names[: min(4, len(all_names))]
+        selected_names = st.multiselect("选择候选人", all_names, default=default_sel)
 
-        if st.button("🔄 重新生成总结", key="regen_summary"):
-            with st.spinner("重新生成中..."):
-                try:
-                    new_sum = summarize(
-                        job_cache,
+        selected = [x for x in display_results if x["name"] in selected_names][:5]
+        if len(selected) >= 2:
+            compare_df = pd.DataFrame(
+                [
+                    {
+                        "姓名": x["name"],
+                        "总分": x["score"],
+                        "推荐意见": x.get("recommendation", "未提取"),
+                        "置信度": x.get("confidence", 0),
+                        "摘要": x.get("summary", ""),
+                        "风险": "；".join(x.get("risks", [])),
+                    }
+                    for x in selected
+                ]
+            )
+            st.dataframe(compare_df, use_container_width=True, hide_index=True)
+
+            if st.button("生成对比结论"):
+                with st.spinner("正在生成对比结论..."):
+                    st.session_state.comparison_md = compare_candidates(
+                        st.session_state.job_title_cache,
                         st.session_state.jd_cache,
                         st.session_state.criteria_cache,
-                        raw_ranked
+                        selected,
                     )
-                    st.session_state.summary = new_sum
-                    st.rerun()
-                except Exception as exc:
-                    st.error("生成失败：" + str(exc))
 
-    # ── 导出区 ──
-    st.markdown("---")
-    st.markdown("### 📥 报告导出")
-
-    exp_cols = st.columns(3)
-
-    with exp_cols[0]:
-        if st.session_state.word_bytes:
-            ts = datetime.now().strftime("%m%d_%H%M")
-            st.download_button(
-                "📄 完整评估报告（Word）",
-                data=st.session_state.word_bytes,
-                file_name=job_cache + "_完整报告_" + ts + ".docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                use_container_width=True
-            )
+            if st.session_state.comparison_md:
+                st.markdown(st.session_state.comparison_md)
         else:
-            st.button("📄 Word报告（生成中...）", disabled=True, use_container_width=True)
+            st.info("请至少选择 2 位候选人。")
 
-    with exp_cols[1]:
-        json_rows = []
-        for r in raw_ranked:
-            json_rows.append({
-                "name": r["name"],
-                "score": r["score"],
-                "recommendation": r.get("recommendation", "未提取"),
-                "sub_scores": r.get("sub_scores", {}),
-            })
-        json_str = json.dumps(json_rows, ensure_ascii=False, indent=2)
-        st.download_button(
-            "📊 评分数据（JSON）",
-            data=json_str.encode("utf-8"),
-            file_name=job_cache + "_评分数据.json",
-            mime="application/json",
-            use_container_width=True
-        )
-
-    with exp_cols[2]:
-        csv_lines = ["排名,姓名,总分,推荐意见"]
-        for i, r in enumerate(raw_ranked, 1):
-            csv_lines.append(
-                str(i) + "," + r["name"] + "," +
-                str(r["score"]) + "," + r.get("recommendation", "未提取")
+    with tab4:
+        st.markdown(st.session_state.summary or "暂无总结。")
+        if st.session_state.summary:
+            summary_bytes = st.session_state.summary.encode("utf-8")
+            st.download_button(
+                "下载总结文本",
+                data=summary_bytes,
+                file_name="summary.md",
+                mime="text/markdown",
+                use_container_width=True,
             )
-        csv_str = "\n".join(csv_lines)
-        st.download_button(
-            "📋 排名表（CSV）",
-            data=csv_str.encode("utf-8-sig"),
-            file_name=job_cache + "_排名表.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
 
-    # ── 分析日志 ──
-    if st.session_state.logs:
-        with st.expander("📜 分析日志", expanded=False):
-            for log in st.session_state.logs:
-                c = "#15803d" if log.startswith("✅") else "#991b1b"
-                st.markdown(
-                    '<div style="font-size:0.83rem;color:' + c + ';padding:3px 0">' +
-                    log + '</div>',
-                    unsafe_allow_html=True
+    with tab5:
+        st.markdown("### 导出")
+        c1, c2, c3 = st.columns(3)
+
+        with c1:
+            if st.session_state.word_bytes:
+                ts = datetime.now().strftime("%Y%m%d_%H%M")
+                st.download_button(
+                    "下载完整 Word 报告",
+                    data=st.session_state.word_bytes,
+                    file_name=f"{st.session_state.job_title_cache}_完整报告_{ts}.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    use_container_width=True,
                 )
+            else:
+                st.button("Word 报告生成中", disabled=True, use_container_width=True)
 
+        with c2:
+            st.download_button(
+                "下载 JSON",
+                data=results_to_json_bytes(ranked),
+                file_name=f"{st.session_state.job_title_cache}_评分数据.json",
+                mime="application/json",
+                use_container_width=True,
+            )
+
+        with c3:
+            st.download_button(
+                "下载 CSV",
+                data=results_to_csv_bytes(ranked),
+                file_name=f"{st.session_state.job_title_cache}_排名表.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+
+    if st.session_state.logs:
+        with st.expander("运行日志"):
+            for line in st.session_state.logs:
+                st.write(line)
 else:
     st.markdown(
-        '<div style="text-align:center;padding:80px 0;color:#94a3b8">'
-        '<div style="font-size:4rem">📋</div>'
-        '<div style="font-size:1.3rem;font-weight:600;margin:16px 0 8px;color:#475569">'
-        '准备好开始评估了吗？</div>'
-        '<div style="font-size:0.95rem">'
-        '填写岗位信息 · 上传简历 · 点击「开始分析」</div>'
-        '</div>',
-        unsafe_allow_html=True
+        """
+<div class="card">
+    <div class="section-title">准备开始</div>
+    <div class="muted">填写岗位信息、上传简历后点击开始分析。</div>
+</div>
+""",
+        unsafe_allow_html=True,
     )
